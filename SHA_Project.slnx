@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="SHA_Project.csproj">
+    <Deploy />
+  </Project>
+</Solution>
