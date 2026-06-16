@@ -50,6 +50,16 @@ namespace SHA_Project
 
             DTE dte = Package.GetGlobalService(typeof(DTE)) as DTE;
 
+            if (string.IsNullOrWhiteSpace(dte?.Solution?.FullName))
+            {
+                if (string.IsNullOrWhiteSpace(dte?.Solution?.FullName))
+                {
+                    return;
+                }
+            }
+
+            
+
             string solutionPath =
                 System.IO.Path.GetDirectoryName(dte.Solution.FullName);
 
@@ -278,7 +288,7 @@ namespace SHA_Project
             $"Support Status: {(package.IsDeprecated ? "Deprecated" : "Active")}\n" +
             $"Vulnerable: {(package.IsVulnerable ? "Yes" : "No")}\n" +
             $"Recommendation: {package.Recommendation}";
-        }
+        } 
 
     } 
 } 

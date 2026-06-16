@@ -34,7 +34,17 @@ namespace SHA_Project.Services
                         package.Attribute("Include")?.Value ?? "Unknown";
 
                     string version =
-                        package.Attribute("Version")?.Value ?? "Unknown";
+                        package.Attribute("Version")?.Value;
+
+                    if (string.IsNullOrWhiteSpace(version))
+                    {
+                        version =
+                            package.Elements()
+                                   .FirstOrDefault(x => x.Name.LocalName == "Version")
+                                   ?.Value;
+                    }
+
+                    version ??= "Unknown";
 
                     bool isPreRelease =
                         version.Contains("-");

@@ -11,9 +11,11 @@
              Name="MyToolWindow">
     <Grid Margin="10">
 
-        <StackPanel>
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
 
-            <Button x:Name="ScanButton"
+            <StackPanel>
+
+                <Button x:Name="ScanButton"
                 Content="Scan Solution"
                 Width="160"
                 Height="35"
@@ -80,7 +82,9 @@
            Text="No AI insights yet."
            TextWrapping="Wrap"/>
 
-        </StackPanel>
+            </StackPanel>
+
+        </ScrollViewer>
 
     </Grid>
 </UserControl>

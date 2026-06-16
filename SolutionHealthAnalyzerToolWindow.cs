@@ -16,12 +16,14 @@ namespace SHA_Project
     /// </para>
     /// </remarks>
     [Guid("7bb08fd4-3994-4cc6-a4b0-185aaad294dd")]
-    public class ToolWindow1 : ToolWindowPane
+
+
+    public class SolutionHealthAnalyzerToolWindow : ToolWindowPane
     {
         /// <summary>
         /// Initializes a new instance of the <see cref="ToolWindow1"/> class.
         /// </summary>
-        public ToolWindow1() : base(null)
+        public SolutionHealthAnalyzerToolWindow() : base(null)
         {
             this.Caption = "Solution Health Analyzer";
 
