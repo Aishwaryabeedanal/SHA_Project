@@ -13,6 +13,7 @@ namespace SHA_Project
     /// </summary>
     public partial class HealthDashboardToolWindowControl : UserControl
     {
+        private SHA_Project.Services.McpServerService _mcpServer;
         private List<PackageHealthInfo> _currentPackages =
         new List<PackageHealthInfo>();
         /// <summary>
@@ -26,6 +27,58 @@ namespace SHA_Project
                 PackagesList_SelectionChanged;
 
             Loaded += HealthDashboardToolWindowControl_Loaded;
+            // Start MCP server
+            _mcpServer =
+                new SHA_Project.Services.McpServerService();
+
+            _mcpServer.CommandReceived += async (body) =>
+            {
+                // Accept both plain text AND json
+                // Plain: "scan" or "build"
+                // JSON: {"command":"scan"}
+                string cmd = body.ToLower()
+                    .Replace("{", "")
+                    .Replace("}", "")
+                    .Replace("\"", "")
+                    .Replace("command:", "")
+                    .Trim();
+
+                if (cmd.Contains("scan") ||
+                    cmd.Contains("analyze") ||
+                    cmd.Contains("check"))
+                {
+                    await Dispatcher.InvokeAsync(() =>
+                        ScanButton_Click(null, null));
+                }
+                else if (cmd.Contains("build"))
+                {
+                    await Dispatcher.InvokeAsync(async () =>
+                    {
+                        await ThreadHelper.JoinableTaskFactory
+                            .SwitchToMainThreadAsync();
+                        var dte = Microsoft.VisualStudio.Shell
+                            .Package.GetGlobalService(
+                            typeof(EnvDTE.DTE)) as EnvDTE.DTE;
+                        dte?.ExecuteCommand(
+                            "Build.BuildSolution");
+                    });
+                }
+                else if (cmd.Contains("clean"))
+                {
+                    await Dispatcher.InvokeAsync(async () =>
+                    {
+                        await ThreadHelper.JoinableTaskFactory
+                            .SwitchToMainThreadAsync();
+                        var dte = Microsoft.VisualStudio.Shell
+                            .Package.GetGlobalService(
+                            typeof(EnvDTE.DTE)) as EnvDTE.DTE;
+                        dte?.ExecuteCommand(
+                            "Build.CleanSolution");
+                    });
+                }
+            };
+
+            _mcpServer.Start();
         }
         private async void HealthDashboardToolWindowControl_Loaded(
           object sender,
@@ -93,9 +146,9 @@ namespace SHA_Project
             PackagesList.Items.Clear();
 
             NuGetInspectionService nugetService =
-            new NuGetInspectionService();
+    new NuGetInspectionService();
 
-            var packages = nugetService.GetPackages(solutionPath);
+            var packages = await nugetService.GetPackagesAsync(solutionPath);
             _currentPackages = packages;
 
             int healthScore = 100;
@@ -268,7 +321,7 @@ namespace SHA_Project
            
         }
 
-        private void PackagesList_SelectionChanged(
+        private async void PackagesList_SelectionChanged(
             object sender,
             SelectionChangedEventArgs e)
         {
@@ -279,16 +332,40 @@ namespace SHA_Project
                 _currentPackages[PackagesList.SelectedIndex];
 
             PackageDetailsText.Text =
-            $"Health Level: {package.HealthLevel}\n" +
-            $"Package: {package.Name}\n" +
-            $"Current Version: {package.Version}\n" +
-            $"Latest Stable: {package.LatestStableVersion}\n" +
-            $"Status: {package.Status}\n" +
-            $"Package Type: {(package.IsPreRelease ? "Pre-Release" : "Stable")}\n" +
-            $"Support Status: {(package.IsDeprecated ? "Deprecated" : "Active")}\n" +
-            $"Vulnerable: {(package.IsVulnerable ? "Yes" : "No")}\n" +
-            $"Recommendation: {package.Recommendation}";
-        } 
+                $"Health Level: {package.HealthLevel}\n" +
+                $"Package: {package.Name}\n" +
+                $"Current Version: {package.Version}\n" +
+                $"Latest Stable: {package.LatestStableVersion}\n" +
+                $"Status: {package.Status}\n" +
+                $"Package Type: {(package.IsPreRelease ? "Pre-Release" : "Stable")}\n" +
+                $"Support Status: {(package.IsDeprecated ? "Deprecated" : "Active")}\n" +
+                $"Vulnerable: {(package.IsVulnerable ? "Yes" : "No")}\n" +
+                $"Recommendation: {package.Recommendation}";
 
-    } 
-} 
+            AiInsightText.Text = "⏳ Asking AI for insight...";
+
+            try
+            {
+                var ai = new SHA_Project.Services.ClaudeAiService();
+
+                string insight = await ai.GetInsightAsync(
+                    package.Name,
+                    package.Version,
+                    package.LatestStableVersion,
+                    package.Status);
+
+                AiInsightText.Text = insight;
+
+                OutputPaneService.WriteLine(
+                    $"[AI] {package.Name}: {insight}");
+            }
+            catch (System.Exception ex)
+            {
+                AiInsightText.Text =
+                    "AI unavailable: " + ex.Message;
+            }
+        }
+    }  // closes class
+}      // closes namespace
+
+
