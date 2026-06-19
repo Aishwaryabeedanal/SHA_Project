@@ -10,7 +10,7 @@ namespace SHA_Project.Services
         private static readonly HttpClient _http =
             new HttpClient();
 
-        private const string ApiKey = "ADD_API_KEY_HERE";
+        private const string ApiKey = "ADD_API_KEY_HERE"; 
 
         public async Task<string> GetInsightAsync(
             string packageName,
