@@ -150,7 +150,36 @@ namespace SHA_Project
                 healthStatus = "Critical";
 
             ScoreText.Text =
-                $"Health Score: {healthScore} ({healthStatus})";
+    $"Health Score: {healthScore} ({healthStatus})";
+
+            // Change color based on score
+            if (healthScore >= 90)
+            {
+                ScoreText.Foreground =
+                    new System.Windows.Media.SolidColorBrush(
+                        System.Windows.Media.Color.FromRgb(
+                            78, 201, 78)); // green
+                ScoreBorderColor.Color =
+                    System.Windows.Media.Color.FromRgb(30, 58, 30);
+            }
+            else if (healthScore >= 50)
+            {
+                ScoreText.Foreground =
+                    new System.Windows.Media.SolidColorBrush(
+                        System.Windows.Media.Color.FromRgb(
+                            255, 165, 0)); // orange
+                ScoreBorderColor.Color =
+                    System.Windows.Media.Color.FromRgb(58, 46, 30);
+            }
+            else
+            {
+                ScoreText.Foreground =
+                    new System.Windows.Media.SolidColorBrush(
+                        System.Windows.Media.Color.FromRgb(
+                            244, 71, 71)); // red
+                ScoreBorderColor.Color =
+                    System.Windows.Media.Color.FromRgb(58, 30, 30);
+            }
 
             PackagesList.Items.Clear();
 
