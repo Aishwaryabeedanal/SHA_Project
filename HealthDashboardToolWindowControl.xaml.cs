@@ -107,15 +107,32 @@ namespace SHA_Project
             RoslynAnalysisService roslynService =
                 new RoslynAnalysisService();
             var result =
-                await roslynService.AnalyzeSolutionAsync();
+             await roslynService.AnalyzeSolutionAsync();
+
+            // Show detailed errors in output pane
+            foreach (var err in result.errorList)
+            {
+                OutputPaneService.WriteLine(
+                    $"❌ {err.Id} — {err.FilePath} Line {err.LineNumber}");
+                OutputPaneService.WriteLine(
+                    $"   {err.FriendlyMessage}");
+                OutputPaneService.WriteLine("");
+            }
+
+            foreach (var warn in result.warningList)
+            {
+                OutputPaneService.WriteLine(
+                    $"⚠ {warn.Id} — {warn.FilePath} Line {warn.LineNumber}");
+                OutputPaneService.WriteLine(
+                    $"   {warn.FriendlyMessage}");
+                OutputPaneService.WriteLine("");
+            }
 
             ErrorsText.Text = $"Errors: {result.errors}";
             WarningsText.Text = $"Warnings: {result.warnings}";
 
             ErrorHumanizer humanizer = new ErrorHumanizer();
-            BuildIssuesText.Text =
-                humanizer.GetFriendlyMessage(
-                    result.errorDetails);
+            BuildIssuesText.Text = result.errorDetails;
 
             TodoText.Text = $"TODOs: {todoCount}";
 
