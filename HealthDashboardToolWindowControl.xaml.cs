@@ -107,15 +107,32 @@ namespace SHA_Project
             RoslynAnalysisService roslynService =
                 new RoslynAnalysisService();
             var result =
-                await roslynService.AnalyzeSolutionAsync();
+             await roslynService.AnalyzeSolutionAsync();
+
+            // Show detailed errors in output pane
+            foreach (var err in result.errorList)
+            {
+                OutputPaneService.WriteLine(
+                    $"❌ {err.Id} — {err.FilePath} Line {err.LineNumber}");
+                OutputPaneService.WriteLine(
+                    $"   {err.FriendlyMessage}");
+                OutputPaneService.WriteLine("");
+            }
+
+            foreach (var warn in result.warningList)
+            {
+                OutputPaneService.WriteLine(
+                    $"⚠ {warn.Id} — {warn.FilePath} Line {warn.LineNumber}");
+                OutputPaneService.WriteLine(
+                    $"   {warn.FriendlyMessage}");
+                OutputPaneService.WriteLine("");
+            }
 
             ErrorsText.Text = $"Errors: {result.errors}";
             WarningsText.Text = $"Warnings: {result.warnings}";
 
             ErrorHumanizer humanizer = new ErrorHumanizer();
-            BuildIssuesText.Text =
-                humanizer.GetFriendlyMessage(
-                    result.errorDetails);
+            BuildIssuesText.Text = result.errorDetails;
 
             TodoText.Text = $"TODOs: {todoCount}";
 
@@ -150,7 +167,36 @@ namespace SHA_Project
                 healthStatus = "Critical";
 
             ScoreText.Text =
-                $"Health Score: {healthScore} ({healthStatus})";
+    $"Health Score: {healthScore} ({healthStatus})";
+
+            // Change color based on score
+            if (healthScore >= 90)
+            {
+                ScoreText.Foreground =
+                    new System.Windows.Media.SolidColorBrush(
+                        System.Windows.Media.Color.FromRgb(
+                            78, 201, 78)); // green
+                ScoreBorderColor.Color =
+                    System.Windows.Media.Color.FromRgb(30, 58, 30);
+            }
+            else if (healthScore >= 50)
+            {
+                ScoreText.Foreground =
+                    new System.Windows.Media.SolidColorBrush(
+                        System.Windows.Media.Color.FromRgb(
+                            255, 165, 0)); // orange
+                ScoreBorderColor.Color =
+                    System.Windows.Media.Color.FromRgb(58, 46, 30);
+            }
+            else
+            {
+                ScoreText.Foreground =
+                    new System.Windows.Media.SolidColorBrush(
+                        System.Windows.Media.Color.FromRgb(
+                            244, 71, 71)); // red
+                ScoreBorderColor.Color =
+                    System.Windows.Media.Color.FromRgb(58, 30, 30);
+            }
 
             PackagesList.Items.Clear();
 
