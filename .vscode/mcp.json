@@ -1,0 +1,8 @@
+﻿{
+  "servers": {
+    "sha-health-analyzer": {
+      "type": "http",
+      "url": "http://localhost:6000/sha/"
+    }
+  }
+}

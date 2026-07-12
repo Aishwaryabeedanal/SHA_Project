@@ -12,19 +12,21 @@ namespace SHA_Project.Services
         private HttpListener _listener;
         private CancellationTokenSource _cts;
 
+        // Old event kept for backward compatibility (build/clean commands)
         public event Action<string> CommandReceived;
+
+        // New: return the actual result as JSON text
+        public Func<string, Task<string>> CommandHandler;
 
         public void Start()
         {
             try
             {
                 _listener = new HttpListener();
-                _listener.Prefixes.Add(
-                    "http://localhost:5010/mcp/");
+                _listener.Prefixes.Add("http://localhost:5010/mcp/");
                 _listener.Start();
                 _cts = new CancellationTokenSource();
-                Task.Run(() =>
-                    ListenLoop(_cts.Token));
+                Task.Run(() => ListenLoop(_cts.Token));
             }
             catch { }
         }
@@ -35,23 +37,20 @@ namespace SHA_Project.Services
             _listener?.Stop();
         }
 
-        private async Task ListenLoop(
-            CancellationToken token)
+        private async Task ListenLoop(CancellationToken token)
         {
             while (!token.IsCancellationRequested)
             {
                 try
                 {
-                    var ctx = await
-                        _listener.GetContextAsync();
+                    var ctx = await _listener.GetContextAsync();
                     _ = Task.Run(() => Handle(ctx));
                 }
                 catch { break; }
             }
         }
 
-        private async Task Handle(
-            HttpListenerContext ctx)
+        private async Task Handle(HttpListenerContext ctx)
         {
             string body = "";
 
@@ -62,25 +61,34 @@ namespace SHA_Project.Services
                 body = await reader.ReadToEndAsync();
             }
 
-            // Fire event so UI reacts
+            // Fire old event too, for build/clean handling
             CommandReceived?.Invoke(body);
 
-            // Send back OK response
-            string response =
-                "{\"status\":\"ok\"," +
-                "\"received\":\"" + body + "\"}";
+            string response;
 
-            byte[] buf =
-                Encoding.UTF8.GetBytes(response);
+            if (CommandHandler != null)
+            {
+                try
+                {
+                    response = await CommandHandler(body);
+                }
+                catch (Exception ex)
+                {
+                    response = "{\"status\":\"error\",\"message\":\"" +
+                        ex.Message.Replace("\"", "'") + "\"}";
+                }
+            }
+            else
+            {
+                response = "{\"status\":\"ok\",\"received\":\"" + body + "\"}";
+            }
 
-            ctx.Response.ContentType =
-                "application/json";
-            ctx.Response.ContentLength64 =
-                buf.Length;
+            byte[] buf = Encoding.UTF8.GetBytes(response);
 
-            await ctx.Response.OutputStream
-                .WriteAsync(buf, 0, buf.Length);
+            ctx.Response.ContentType = "application/json";
+            ctx.Response.ContentLength64 = buf.Length;
 
+            await ctx.Response.OutputStream.WriteAsync(buf, 0, buf.Length);
             ctx.Response.Close();
         }
     }
