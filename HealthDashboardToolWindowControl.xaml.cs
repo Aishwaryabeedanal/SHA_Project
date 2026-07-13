@@ -1,12 +1,14 @@
-﻿using System.Collections.Generic;
-using System.Text.Json;
-using SHA_Project.Models;
-using EnvDTE;
+﻿using EnvDTE;
 using Microsoft.VisualStudio.Shell;
+using SHA_Project.Models;
 using SHA_Project.Services;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.Json;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using System.Threading.Tasks;
 
 namespace SHA_Project
 {
@@ -74,13 +76,60 @@ namespace SHA_Project
                     .Replace("\"", "").Replace("command:", "")
                     .Trim();
 
-                if (cmd.Contains("scan") || cmd.Contains("health"))
+                if (cmd.Contains("scan") ||
+    cmd.Contains("health") ||
+    cmd.Contains("report"))
                 {
+                    // Use TaskCompletionSource to wait for
+                    // scan to fully complete
+                    var tcs = new System.Threading.Tasks
+                        .TaskCompletionSource<bool>();
+
                     await Dispatcher.InvokeAsync(async () =>
                     {
-                        await DoScanAsync();
+                        try
+                        {
+                            await DoScanAsync();
+                            tcs.SetResult(true);
+                        }
+                        catch (Exception ex)
+                        {
+                            tcs.SetException(ex);
+                        }
+                    }).Task.Unwrap();
+
+                    // Extra wait to ensure UI updates complete
+                    await Task.Delay(500);
+
+                    // Now return real data
+                    return JsonSerializer.Serialize(new
+                    {
+                        status = "success",
+                        healthScore = _lastHealthScore,
+                        healthStatus = _lastHealthStatus,
+                        errors = _lastErrors,
+                        warnings = _lastWarnings,
+                        todos = _lastTodoCount,
+                        recommendation = _lastRecommendation,
+                        buildIssues = _lastBuildIssues,
+                        summary =
+                            $"Health Score: {_lastHealthScore}/100" +
+                            $" ({_lastHealthStatus})\n" +
+                            $"Errors: {_lastErrors}\n" +
+                            $"Warnings: {_lastWarnings}\n" +
+                            $"TODOs: {_lastTodoCount}\n\n" +
+                            $"Recommendation:\n{_lastRecommendation}",
+                        packages = _currentPackages
+                            .Select(p => new
+                            {
+                                name = p.Name,
+                                version = p.Version,
+                                latest = p.LatestStableVersion,
+                                status = p.Status,
+                                vulnerable = p.IsVulnerable,
+                                recommendation = p.Recommendation
+                            }).ToList()
                     });
-                    return BuildScanResultJson();
                 }
                 else if (cmd.Contains("error"))
                 {

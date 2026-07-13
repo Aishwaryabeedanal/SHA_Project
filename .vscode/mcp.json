@@ -2,7 +2,8 @@
   "servers": {
     "sha-health-analyzer": {
       "type": "http",
-      "url": "http://localhost:6000/sha/"
+      "url": "http://localhost:6000/",
+      "description": "Solution Health Analyzer - scans VS solution for errors, warnings, NuGet package health, and generates health score"
     }
   }
 }
