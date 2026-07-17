@@ -114,5 +114,84 @@ namespace SHA_Project.Models
 
             return sb.ToString();
         }
+
+        public string ToMarkdownString()
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("# 🏥 Solution Health Analysis Report");
+            sb.AppendLine();
+            sb.AppendLine($"**Health Score:** {HealthScore}/100");
+            sb.AppendLine($"**Status:** {HealthStatus}");
+            sb.AppendLine();
+            
+            sb.AppendLine("## 📊 Summary");
+            sb.AppendLine($"- ❌ **Errors:** {Errors.Count}");
+            sb.AppendLine($"- ⚠️ **Warnings:** {Warnings.Count}");
+            sb.AppendLine($"- 📝 **TODOs:** {Todos.Count}");
+            sb.AppendLine();
+
+            if (Errors.Any() || Warnings.Any())
+            {
+                sb.AppendLine("## 🔨 Build Issues");
+                foreach (var error in Errors)
+                {
+                    sb.AppendLine($"* **[Error]** `{error.FilePath}` (Line {error.LineNumber}): {error.RawMessage}");
+                    sb.AppendLine($"  > 💡 {error.HumanizedMessage}");
+                }
+                foreach (var warning in Warnings)
+                {
+                    sb.AppendLine($"* **[Warning]** `{warning.FilePath}` (Line {warning.LineNumber}): {warning.RawMessage}");
+                    sb.AppendLine($"  > 💡 {warning.HumanizedMessage}");
+                }
+                sb.AppendLine();
+            }
+
+            if (Packages.Any())
+            {
+                sb.AppendLine("## 📦 NuGet Packages");
+                sb.AppendLine("| Package | Version | Latest | Status | Vulnerable | Recommendation |");
+                sb.AppendLine("|---------|---------|--------|--------|------------|----------------|");
+                foreach (var p in Packages)
+                {
+                    string statusIcon = p.HealthLevel == "Healthy" ? "✅" : (p.HealthLevel == "Outdated" ? "🔵" : "❌");
+                    string vulnIcon = p.IsVulnerable ? "🚨 Yes" : "No";
+                    sb.AppendLine($"| {p.Name} | {p.Version} | {p.LatestStableVersion} | {statusIcon} {p.HealthLevel} | {vulnIcon} | {p.Recommendation} |");
+                }
+                sb.AppendLine();
+            }
+
+            if (Todos.Any())
+            {
+                sb.AppendLine("## 📝 TODO Comments");
+                foreach (var todo in Todos.Take(10)) // Limit to 10 for chat readability
+                {
+                    sb.AppendLine($"* `{todo.FileName}` (Line {todo.LineNumber}): {todo.Text}");
+                }
+                if (Todos.Count > 10)
+                {
+                    sb.AppendLine($"*...and {Todos.Count - 10} more (view in Tool Window)*");
+                }
+                sb.AppendLine();
+            }
+
+            if (AiInsights != null && (!string.IsNullOrEmpty(AiInsights.BuildAnalysis) || !string.IsNullOrEmpty(AiInsights.OptimizationSuggestions) || !string.IsNullOrEmpty(AiInsights.PackageRecommendations) || !string.IsNullOrEmpty(AiInsights.OverallFeedback)))
+            {
+                sb.AppendLine("## 🤖 AI Recommendations");
+                if (!string.IsNullOrEmpty(AiInsights.BuildAnalysis))
+                    sb.AppendLine(AiInsights.BuildAnalysis);
+                if (!string.IsNullOrEmpty(AiInsights.OptimizationSuggestions))
+                    sb.AppendLine(AiInsights.OptimizationSuggestions);
+                if (!string.IsNullOrEmpty(AiInsights.PackageRecommendations))
+                    sb.AppendLine(AiInsights.PackageRecommendations);
+                if (!string.IsNullOrEmpty(AiInsights.OverallFeedback))
+                    sb.AppendLine(AiInsights.OverallFeedback);
+                sb.AppendLine();
+            }
+            
+            sb.AppendLine("---");
+            sb.AppendLine("*For an interactive and more detailed view, open the **Solution Health Analyzer Tool Window** inside Visual Studio.*");
+
+            return sb.ToString();
+        }
     }
 }

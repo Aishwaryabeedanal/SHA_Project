@@ -285,7 +285,7 @@ namespace SHA_Project.Services
                             .CreateToolCallTextResponse(
                                 id,
                                 _lastReport
-                                    .ToOutputPaneString());
+                                    .ToMarkdownString());
                     }
                     return McpClientHelper
                         .CreateToolCallTextResponse(

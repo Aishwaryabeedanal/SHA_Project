@@ -94,24 +94,7 @@ namespace SHA_Project
 
                     if (_lastReport != null)
                     {
-                        return JsonSerializer.Serialize(new
-                        {
-                            status = "success",
-                            healthScore = _lastReport.HealthScore,
-                            healthStatus = _lastReport.HealthStatus,
-                            errors = _lastReport.Errors.Count,
-                            warnings = _lastReport.Warnings.Count,
-                            todos = _lastReport.Todos.Count,
-                            packages = _currentPackages.Select(p => new
-                            {
-                                name = p.Name,
-                                version = p.Version,
-                                latest = p.LatestStableVersion,
-                                status = p.Status,
-                                vulnerable = p.IsVulnerable,
-                                recommendation = p.Recommendation
-                            }).ToList()
-                        });
+                        return _lastReport.ToMarkdownString();
                     }
 
                     return "{\"status\":\"ok\",\"message\":\"scan completed\"}";
