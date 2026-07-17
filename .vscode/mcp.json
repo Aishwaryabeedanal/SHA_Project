@@ -1,9 +1,10 @@
-﻿{
-  "servers": {
+{
+  "mcpServers": {
     "sha-health-analyzer": {
-      "type": "http",
-      "url": "http://localhost:6000/",
-      "description": "Solution Health Analyzer - scans VS solution for errors, warnings, NuGet package health, and generates health score"
+      "command": "C:\\Users\\Aishwarya.b\\source\\repos\\SHA_Project\\SHA_MCP_Server\\publish\\SHA_MCP_Server.exe",
+      "args": [
+        "--stdio"
+      ]
     }
   }
 }

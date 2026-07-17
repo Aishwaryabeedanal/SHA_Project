@@ -1,6 +1,6 @@
 <Solution>
-  <Project Path="../SHA_MCP_Server/SHA_MCP_Server.csproj" />
-  <Project Path="SHA_Project.csproj">
+  <Project Path="SHA_Project.csproj" Type="Classic C#">
     <Deploy />
   </Project>
+  <Project Path="SHA_MCP_Server/SHA_MCP_Server.csproj" />
 </Solution>

@@ -1,10 +1,11 @@
-﻿using EnvDTE;
+using EnvDTE;
 using Microsoft.VisualStudio.Shell;
 using SHA_Project.Models;
 using SHA_Project.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using System.Windows;
@@ -14,18 +15,10 @@ namespace SHA_Project
 {
     public partial class HealthDashboardToolWindowControl : UserControl
     {
-        private SHA_Project.Services.McpServerService _mcpServer;
         private List<PackageHealthInfo> _currentPackages =
             new List<PackageHealthInfo>();
 
-        // Store the latest scan results so MCP commands can read them
-        private int _lastErrors;
-        private int _lastWarnings;
-        private int _lastTodoCount;
-        private int _lastHealthScore;
-        private string _lastHealthStatus = "Unknown";
-        private string _lastRecommendation = "";
-        private string _lastBuildIssues = "";
+        private HealthReport _lastReport;
 
         public HealthDashboardToolWindowControl()
         {
@@ -36,10 +29,11 @@ namespace SHA_Project
 
             Loaded += HealthDashboardToolWindowControl_Loaded;
 
-            _mcpServer = new SHA_Project.Services.McpServerService();
+            // Wire up MCP server (singleton — already started by package)
+            var mcpServer = McpServerService.Instance;
 
-            // Old-style commands (build/clean) still handled here
-            _mcpServer.CommandReceived += async (body) =>
+            // Legacy build/clean commands
+            mcpServer.CommandReceived += async (body) =>
             {
                 string cmd = body.ToLower()
                     .Replace("{", "").Replace("}", "")
@@ -51,7 +45,7 @@ namespace SHA_Project
                     await Dispatcher.InvokeAsync(async () =>
                     {
                         await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                        var dte = Microsoft.VisualStudio.Shell.Package.GetGlobalService(
+                        var dte = Package.GetGlobalService(
                             typeof(EnvDTE.DTE)) as EnvDTE.DTE;
                         dte?.ExecuteCommand("Build.BuildSolution");
                     });
@@ -61,15 +55,15 @@ namespace SHA_Project
                     await Dispatcher.InvokeAsync(async () =>
                     {
                         await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                        var dte = Microsoft.VisualStudio.Shell.Package.GetGlobalService(
+                        var dte = Package.GetGlobalService(
                             typeof(EnvDTE.DTE)) as EnvDTE.DTE;
                         dte?.ExecuteCommand("Build.CleanSolution");
                     });
                 }
             };
 
-            // New-style: returns real JSON data back to Copilot
-            _mcpServer.CommandHandler = async (body) =>
+            // JSON-RPC command handler for scan requests
+            mcpServer.CommandHandler = async (body) =>
             {
                 string cmd = body.ToLower()
                     .Replace("{", "").Replace("}", "")
@@ -77,50 +71,38 @@ namespace SHA_Project
                     .Trim();
 
                 if (cmd.Contains("scan") ||
-    cmd.Contains("health") ||
-    cmd.Contains("report"))
+                    cmd.Contains("health") ||
+                    cmd.Contains("report"))
                 {
-                    // Use TaskCompletionSource to wait for
-                    // scan to fully complete
-                    var tcs = new System.Threading.Tasks
-                        .TaskCompletionSource<bool>();
+                    var tcs = new TaskCompletionSource<bool>();
 
                     await Dispatcher.InvokeAsync(async () =>
                     {
                         try
                         {
                             await DoScanAsync();
-                            tcs.SetResult(true);
+                            tcs.TrySetResult(true);
                         }
                         catch (Exception ex)
                         {
-                            tcs.SetException(ex);
+                            tcs.TrySetException(ex);
                         }
-                    }).Task.Unwrap();
+                    });
 
-                    // Extra wait to ensure UI updates complete
-                    await Task.Delay(500);
+                    try { await tcs.Task; } catch { }
+                    await Task.Delay(300);
 
-                    // Now return real data
-                    return JsonSerializer.Serialize(new
+                    if (_lastReport != null)
                     {
-                        status = "success",
-                        healthScore = _lastHealthScore,
-                        healthStatus = _lastHealthStatus,
-                        errors = _lastErrors,
-                        warnings = _lastWarnings,
-                        todos = _lastTodoCount,
-                        recommendation = _lastRecommendation,
-                        buildIssues = _lastBuildIssues,
-                        summary =
-                            $"Health Score: {_lastHealthScore}/100" +
-                            $" ({_lastHealthStatus})\n" +
-                            $"Errors: {_lastErrors}\n" +
-                            $"Warnings: {_lastWarnings}\n" +
-                            $"TODOs: {_lastTodoCount}\n\n" +
-                            $"Recommendation:\n{_lastRecommendation}",
-                        packages = _currentPackages
-                            .Select(p => new
+                        return JsonSerializer.Serialize(new
+                        {
+                            status = "success",
+                            healthScore = _lastReport.HealthScore,
+                            healthStatus = _lastReport.HealthStatus,
+                            errors = _lastReport.Errors.Count,
+                            warnings = _lastReport.Warnings.Count,
+                            todos = _lastReport.Todos.Count,
+                            packages = _currentPackages.Select(p => new
                             {
                                 name = p.Name,
                                 version = p.Version,
@@ -129,28 +111,53 @@ namespace SHA_Project
                                 vulnerable = p.IsVulnerable,
                                 recommendation = p.Recommendation
                             }).ToList()
-                    });
+                        });
+                    }
+
+                    return "{\"status\":\"ok\",\"message\":\"scan completed\"}";
                 }
                 else if (cmd.Contains("error"))
                 {
                     return JsonSerializer.Serialize(new
                     {
-                        errors = _lastErrors,
-                        details = _lastBuildIssues
+                        errors = _lastReport?.Errors.Count ?? 0,
+                        details = _lastReport?.Errors.Select(e => new
+                        {
+                            file = e.FilePath,
+                            line = e.LineNumber,
+                            code = e.ErrorCode,
+                            message = e.RawMessage,
+                            humanized = e.HumanizedMessage
+                        }).ToList()
                     });
                 }
                 else if (cmd.Contains("warning"))
                 {
                     return JsonSerializer.Serialize(new
                     {
-                        warnings = _lastWarnings
+                        warnings = _lastReport?.Warnings.Count ?? 0,
+                        details = _lastReport?.Warnings.Select(w => new
+                        {
+                            file = w.FilePath,
+                            line = w.LineNumber,
+                            code = w.ErrorCode,
+                            message = w.RawMessage,
+                            humanized = w.HumanizedMessage
+                        }).ToList()
                     });
                 }
                 else if (cmd.Contains("todo"))
                 {
                     return JsonSerializer.Serialize(new
                     {
-                        todos = _lastTodoCount
+                        count = _lastReport?.Todos.Count ?? 0,
+                        items = _lastReport?.Todos.Select(t => new
+                        {
+                            file = t.FileName,
+                            line = t.LineNumber,
+                            text = t.Text,
+                            type = t.Type
+                        }).ToList()
                     });
                 }
                 else if (cmd.Contains("package"))
@@ -166,30 +173,13 @@ namespace SHA_Project
                 {
                     return JsonSerializer.Serialize(new
                     {
-                        score = _lastHealthScore,
-                        status = _lastHealthStatus
+                        score = _lastReport?.HealthScore ?? 0,
+                        status = _lastReport?.HealthStatus ?? "Unknown"
                     });
                 }
 
                 return "{\"status\":\"ok\",\"message\":\"command not recognized\"}";
             };
-
-            _mcpServer.Start();
-        }
-
-        private string BuildScanResultJson()
-        {
-            return JsonSerializer.Serialize(new
-            {
-                healthScore = _lastHealthScore,
-                healthStatus = _lastHealthStatus,
-                errors = _lastErrors,
-                warnings = _lastWarnings,
-                todos = _lastTodoCount,
-                recommendation = _lastRecommendation,
-                buildIssues = _lastBuildIssues,
-                packages = _currentPackages
-            });
         }
 
         private async void HealthDashboardToolWindowControl_Loaded(
@@ -201,7 +191,18 @@ namespace SHA_Project
 
         private async void ScanButton_Click(object sender, RoutedEventArgs e)
         {
-            await DoScanAsync();
+            ScanButton.IsEnabled = false;
+            ScanButton.Content = "⏳ Scanning...";
+
+            try
+            {
+                await DoScanAsync();
+            }
+            finally
+            {
+                ScanButton.IsEnabled = true;
+                ScanButton.Content = "🔍 Scan Solution";
+            }
         }
 
         private async Task DoScanAsync()
@@ -219,52 +220,129 @@ namespace SHA_Project
             string solutionPath =
                 System.IO.Path.GetDirectoryName(dte.Solution.FullName);
 
+            // Create the health report
+            var report = new HealthReport();
+
+            // 1. Scan TODOs (per-occurrence)
             TodoScannerService todoService = new TodoScannerService();
-            int todoCount = todoService.ScanTodos(solutionPath);
+            report.Todos = todoService.ScanTodos(solutionPath);
 
+            // 2. Roslyn build analysis (returns structured BuildIssue lists)
             RoslynAnalysisService roslynService = new RoslynAnalysisService();
-            var result = await roslynService.AnalyzeSolutionAsync();
+            var buildResult = await roslynService.AnalyzeSolutionAsync();
+            report.Errors = buildResult.errors;
+            report.Warnings = buildResult.warnings;
 
-            ErrorsText.Text = $"Errors: {result.errors}";
-            WarningsText.Text = $"Warnings: {result.warnings}";
-
+            // 3. Humanize errors and warnings
             ErrorHumanizer humanizer = new ErrorHumanizer();
-            BuildIssuesText.Text = humanizer.GetFriendlyMessage(result.errorDetails);
+            humanizer.HumanizeIssues(report.Errors);
+            humanizer.HumanizeIssues(report.Warnings);
 
-            TodoText.Text = $"TODOs: {todoCount}";
-
+            // 4. NuGet package scan
             NuGetInspectionService nugetService = new NuGetInspectionService();
-            var packages = await nugetService.GetPackagesAsync(solutionPath);
-            _currentPackages = packages;
+            report.Packages = await nugetService.GetPackagesAsync(solutionPath);
+            _currentPackages = report.Packages;
 
-            int healthScore = 100;
-            healthScore -= result.errors * 10;
-            healthScore -= result.warnings * 2;
-            healthScore -= todoCount;
+            // 5. Calculate health score
+            report.CalculateHealthScore();
+            report.ScannedAt = DateTime.Now;
 
-            foreach (var package in packages)
+            // 6. AI Insights (Gemini)
+            try
             {
-                if (package.IsPreRelease)
-                    healthScore -= 5;
+                var aiService = new ClaudeAiService();
+                report.AiInsights = await aiService.GetFullInsightsAsync(report);
+
+                // Apply per-package insights back to packages
+                foreach (var pkg in report.Packages)
+                {
+                    if (report.AiInsights.PerPackageInsights
+                        .TryGetValue(pkg.Name, out string insight))
+                    {
+                        pkg.AiInsight = insight;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                report.AiInsights = new AiInsightResult
+                {
+                    OverallFeedback = "AI analysis failed: " + ex.Message
+                };
             }
 
-            if (healthScore < 0) healthScore = 0;
+            // Store for MCP access
+            _lastReport = report;
+            McpServerService.Instance.SetLastReport(report);
 
-            string healthStatus;
-            if (healthScore >= 90) healthStatus = "Excellent";
-            else if (healthScore >= 75) healthStatus = "Good";
-            else if (healthScore >= 50) healthStatus = "Needs Attention";
-            else healthStatus = "Critical";
+            // --- UPDATE UI ---
 
-            ScoreText.Text = $"Health Score: {healthScore} ({healthStatus})";
+            // Errors & Warnings
+            ErrorsText.Text = $"❌ Errors: {report.Errors.Count}";
+            WarningsText.Text = $"⚠ Warnings: {report.Warnings.Count}";
+            TodoText.Text = $"📝 TODOs: {report.Todos.Count}";
 
-            if (healthScore >= 90)
+            // Build Issues text
+            if (report.Errors.Count > 0 || report.Warnings.Count > 0)
+            {
+                var issuesText = new StringBuilder();
+                foreach (var e in report.Errors)
+                {
+                    issuesText.AppendLine(
+                        $"[Error] {e.ErrorCode} in {e.FilePath} line {e.LineNumber}:");
+                    issuesText.AppendLine($"  {e.RawMessage}");
+                    issuesText.AppendLine($"  → {e.HumanizedMessage}");
+                    issuesText.AppendLine();
+                }
+                foreach (var w in report.Warnings.Take(20))
+                {
+                    issuesText.AppendLine(
+                        $"[Warning] {w.ErrorCode} in {w.FilePath} line {w.LineNumber}:");
+                    issuesText.AppendLine($"  {w.RawMessage}");
+                    issuesText.AppendLine($"  → {w.HumanizedMessage}");
+                    issuesText.AppendLine();
+                }
+                BuildIssuesText.Text = issuesText.ToString();
+            }
+            else
+            {
+                BuildIssuesText.Text = "✅ No build issues found.";
+            }
+
+            // TODO Comments text
+            if (report.Todos.Count > 0)
+            {
+                var todosText = new StringBuilder();
+                todosText.AppendLine($"Total: {report.Todos.Count}");
+                todosText.AppendLine();
+                foreach (var t in report.Todos.Take(50))
+                {
+                    todosText.AppendLine(
+                        $"[{t.Type}] {t.FileName} line {t.LineNumber}: {t.Text}");
+                }
+                TodoDetailsText.Text = todosText.ToString();
+            }
+            else
+            {
+                TodoDetailsText.Text = "✅ No TODO comments found.";
+            }
+
+            // Health score with color coding
+            ScoreText.Text = $"Health Score: {report.HealthScore}/100 ({report.HealthStatus})";
+
+            if (report.HealthScore >= 90)
             {
                 ScoreText.Foreground = new System.Windows.Media.SolidColorBrush(
                     System.Windows.Media.Color.FromRgb(78, 201, 78));
                 ScoreBorderColor.Color = System.Windows.Media.Color.FromRgb(30, 58, 30);
             }
-            else if (healthScore >= 50)
+            else if (report.HealthScore >= 75)
+            {
+                ScoreText.Foreground = new System.Windows.Media.SolidColorBrush(
+                    System.Windows.Media.Color.FromRgb(144, 238, 144));
+                ScoreBorderColor.Color = System.Windows.Media.Color.FromRgb(30, 50, 30);
+            }
+            else if (report.HealthScore >= 50)
             {
                 ScoreText.Foreground = new System.Windows.Media.SolidColorBrush(
                     System.Windows.Media.Color.FromRgb(255, 165, 0));
@@ -277,78 +355,61 @@ namespace SHA_Project
                 ScoreBorderColor.Color = System.Windows.Media.Color.FromRgb(58, 30, 30);
             }
 
+            // Package list
             PackagesList.Items.Clear();
-
-            foreach (var package in packages)
+            foreach (var package in report.Packages)
             {
-                string packageHealth = "Healthy";
-                if (package.IsVulnerable) packageHealth = "Vulnerable";
-                else if (package.IsDeprecated) packageHealth = "Deprecated";
-                else if (package.IsPreRelease) packageHealth = "Needs Upgrade";
+                string icon = package.HealthLevel == "Healthy" ? "✅" :
+                    package.HealthLevel == "Vulnerable" ? "🔴" :
+                    package.HealthLevel == "Deprecated" ? "⚠" :
+                    package.HealthLevel == "Pre-Release" ? "🟡" :
+                    package.HealthLevel == "Outdated" ? "🔵" : "📦";
 
-                PackagesList.Items.Add($"{package.Name} | {packageHealth}");
+                PackagesList.Items.Add(
+                    $"{icon} {package.Name} | {package.HealthLevel}");
             }
 
             if (PackagesList.Items.Count > 0)
                 PackagesList.SelectedIndex = 0;
 
-            string recommendation = "";
-
-            if (result.errors > 0)
-                recommendation += "Fix build errors first.\n";
-
-            if (todoCount > 5)
-                recommendation += "Review pending TODO comments.\n";
-
-            foreach (var package in packages)
+            // AI Insights
+            var aiText = new StringBuilder();
+            if (report.AiInsights != null)
             {
-                if (package.IsPreRelease)
-                    recommendation += $"Package {package.Name} is pre-release. Consider stable.\n";
+                if (!string.IsNullOrEmpty(report.AiInsights.BuildAnalysis))
+                {
+                    aiText.AppendLine("── Build Analysis ──");
+                    aiText.AppendLine(report.AiInsights.BuildAnalysis);
+                    aiText.AppendLine();
+                }
+                if (!string.IsNullOrEmpty(report.AiInsights.OptimizationSuggestions))
+                {
+                    aiText.AppendLine("── Optimization ──");
+                    aiText.AppendLine(report.AiInsights.OptimizationSuggestions);
+                    aiText.AppendLine();
+                }
+                if (!string.IsNullOrEmpty(report.AiInsights.PackageRecommendations))
+                {
+                    aiText.AppendLine("── Package Recommendations ──");
+                    aiText.AppendLine(report.AiInsights.PackageRecommendations);
+                    aiText.AppendLine();
+                }
+                if (!string.IsNullOrEmpty(report.AiInsights.OverallFeedback))
+                {
+                    aiText.AppendLine("── Overall Assessment ──");
+                    aiText.AppendLine(report.AiInsights.OverallFeedback);
+                }
             }
 
-            if (string.IsNullOrWhiteSpace(recommendation))
-                recommendation = "Project looks healthy.";
+            AiInsightText.Text = aiText.Length > 0
+                ? aiText.ToString()
+                : "AI insights unavailable.";
 
-            AiInsightText.Text = recommendation;
+            // Timestamp
+            LastScannedText.Text = $"Last scanned: {report.ScannedAt:HH:mm:ss}";
 
-            // Save for MCP responses
-            _lastErrors = result.errors;
-            _lastWarnings = result.warnings;
-            _lastTodoCount = todoCount;
-            _lastHealthScore = healthScore;
-            _lastHealthStatus = healthStatus;
-            _lastRecommendation = recommendation;
-            _lastBuildIssues = BuildIssuesText.Text;
-
-            OutputPaneService.WriteLine("");
-            OutputPaneService.WriteLine("===== SOLUTION HEALTH ANALYZER =====");
-            OutputPaneService.WriteLine($"Errors: {result.errors}");
-            OutputPaneService.WriteLine($"Warnings: {result.warnings}");
-            OutputPaneService.WriteLine($"TODOs: {todoCount}");
-            OutputPaneService.WriteLine("");
-            OutputPaneService.WriteLine($"Health Score: {healthScore} ({healthStatus})");
-            OutputPaneService.WriteLine("");
-            OutputPaneService.WriteLine("===== PACKAGE DETAILS =====");
-
-            foreach (var package in packages)
-            {
-                OutputPaneService.WriteLine($"Package: {package.Name}");
-                OutputPaneService.WriteLine($"Current Version: {package.Version}");
-                OutputPaneService.WriteLine($"Latest Stable: {package.LatestStableVersion}");
-                OutputPaneService.WriteLine($"Package Type: {(package.IsPreRelease ? "Pre-Release" : "Stable")}");
-                OutputPaneService.WriteLine($"Support Status: {(package.IsDeprecated ? "Deprecated" : "Active")}");
-                OutputPaneService.WriteLine($"Vulnerable: {(package.IsVulnerable ? "Yes" : "No")}");
-                OutputPaneService.WriteLine($"Recommendation: {package.Recommendation}");
-                OutputPaneService.WriteLine("");
-            }
-
-            OutputPaneService.WriteLine("===== BUILD ISSUES =====");
-            OutputPaneService.WriteLine(BuildIssuesText.Text);
-            OutputPaneService.WriteLine("");
-            OutputPaneService.WriteLine("===== AI INSIGHT =====");
-            OutputPaneService.WriteLine(recommendation);
-            OutputPaneService.WriteLine("");
-            OutputPaneService.WriteLine("====================================");
+            // 7. Write to Output Pane (full formatted report)
+            OutputPaneService.WriteFullReport(report);
         }
 
         private async void PackagesList_SelectionChanged(
@@ -360,35 +421,47 @@ namespace SHA_Project
             var package = _currentPackages[PackagesList.SelectedIndex];
 
             PackageDetailsText.Text =
-                $"Health Level: {package.HealthLevel}\n" +
                 $"Package: {package.Name}\n" +
-                $"Current Version: {package.Version}\n" +
-                $"Latest Stable: {package.LatestStableVersion}\n" +
-                $"Status: {package.Status}\n" +
-                $"Package Type: {(package.IsPreRelease ? "Pre-Release" : "Stable")}\n" +
-                $"Support Status: {(package.IsDeprecated ? "Deprecated" : "Active")}\n" +
-                $"Vulnerable: {(package.IsVulnerable ? "Yes" : "No")}\n" +
-                $"Recommendation: {package.Recommendation}";
+                $"Installed Version : {package.Version}\n" +
+                $"Latest Stable     : {package.LatestStableVersion}\n" +
+                $"Vulnerable        : {(package.IsVulnerable ? "Yes" : "No")}\n" +
+                $"Deprecated        : {(package.IsDeprecated ? "Yes" : "No")}\n" +
+                $"Pre-Release       : {(package.IsPreRelease ? "Yes" : "No")}\n" +
+                $"New Version       : {(package.IsNewVersionAvailable ? "Available" : "Up to Date")}\n" +
+                $"Health Status     : {package.HealthLevel}\n" +
+                $"Recommendation    : {package.Recommendation}\n" +
+                $"Upgrade Command   : {package.UpgradeCommand}";
 
-            AiInsightText.Text = "⏳ Asking AI for insight...";
-
-            try
+            // Get AI insight for selected package
+            if (string.IsNullOrEmpty(package.AiInsight) ||
+                package.AiInsight == "")
             {
-                var ai = new SHA_Project.Services.ClaudeAiService();
+                AiInsightText.Text = "⏳ Asking Gemini AI for insight...";
 
-                string insight = await ai.GetInsightAsync(
-                    package.Name,
-                    package.Version,
-                    package.LatestStableVersion,
-                    package.Status);
+                try
+                {
+                    var ai = new ClaudeAiService();
+                    string insight = await ai.GetInsightAsync(
+                        package.Name,
+                        package.Version,
+                        package.LatestStableVersion,
+                        package.HealthLevel);
 
-                AiInsightText.Text = insight;
+                    package.AiInsight = insight;
+                    AiInsightText.Text = $"── AI Insight: {package.Name} ──\n{insight}";
 
-                OutputPaneService.WriteLine($"[AI] {package.Name}: {insight}");
+                    OutputPaneService.WriteLine(
+                        $"[AI] {package.Name}: {insight}");
+                }
+                catch (Exception ex)
+                {
+                    AiInsightText.Text = "AI unavailable: " + ex.Message;
+                }
             }
-            catch (System.Exception ex)
+            else
             {
-                AiInsightText.Text = "AI unavailable: " + ex.Message;
+                AiInsightText.Text =
+                    $"── AI Insight: {package.Name} ──\n{package.AiInsight}";
             }
         }
 

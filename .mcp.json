@@ -1,8 +1,10 @@
 {
-  "servers": {
-    "SHA-Analyzer": {
-      "type": "stdio",
-      "command": "C:\\Users\\Aishwarya.b\\source\\repos\\SHA_MCP_Server\\bin\\Release\\net10.0\\SHA_MCP_Server.exe"
+  "mcpServers": {
+    "sha-health-analyzer": {
+      "command": "C:\\Users\\Aishwarya.b\\source\\repos\\SHA_Project\\SHA_MCP_Server\\publish\\SHA_MCP_Server.exe",
+      "args": [
+        "--stdio"
+      ]
     }
   }
 }

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -34,18 +34,26 @@ namespace SHA_Project
             await HealthDashboardToolWindow
                 .InitializeAsync(this);
 
-            // Start MCP server independently
-            // so port 5010 opens even before
-            // tool window is shown
+            // Start MCP server once via singleton
+            var mcp = SHA_Project.Services.McpServerService.Instance;
+            mcp.OpenToolWindow = () =>
+            {
+                this.JoinableTaskFactory.Run(async delegate
+                {
+                    await this.JoinableTaskFactory.SwitchToMainThreadAsync();
+                    var window = await this.FindToolWindowAsync(
+                        typeof(SolutionHealthAnalyzerToolWindow), 0, true, this.DisposalToken);
+                    if (window?.Frame != null)
+                    {
+                        var windowFrame = (IVsWindowFrame)window.Frame;
+                        windowFrame.Show();
+                    }
+                });
+            };
+
             await Task.Run(() =>
             {
-                try
-                {
-                    var mcp = new SHA_Project
-                        .Services.McpServerService();
-                    mcp.Start();
-                }
-                catch { }
+                try { mcp.Start(); } catch { }
             });
         }
     }

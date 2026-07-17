@@ -1,4 +1,4 @@
-﻿using SHA_Project.Models;
+using SHA_Project.Models;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -407,6 +407,46 @@ namespace SHA_Project.Services
                     $"Switch to stable: {latestStable}";
             }
 
+            bool isNewVersionAvailable =
+                !string.Equals(version, latestStable,
+                    System.StringComparison.OrdinalIgnoreCase) &&
+                latestStable != version &&
+                !latestStable.StartsWith("Unknown");
+
+            string upgradeCommand =
+                $"dotnet add package {name} --version {latestStable}";
+
+            // Determine health level priority:
+            // Vulnerable > Deprecated > Pre-Release > Outdated > Healthy
+            if (isVulnerable)
+            {
+                healthLevel = "Vulnerable";
+                recommendation =
+                    $"CRITICAL: Package has known vulnerabilities. " +
+                    $"Upgrade immediately: {upgradeCommand}";
+            }
+            else if (isDeprecated)
+            {
+                healthLevel = "Deprecated";
+                recommendation =
+                    $"Package is deprecated. Find an alternative " +
+                    $"or upgrade: {upgradeCommand}";
+            }
+            else if (isPreRelease)
+            {
+                healthLevel = "Pre-Release";
+                recommendation =
+                    $"Pre-release version installed. " +
+                    $"Switch to stable: {upgradeCommand}";
+            }
+            else if (isNewVersionAvailable)
+            {
+                healthLevel = "Outdated";
+                recommendation =
+                    $"Version {latestStable} available. " +
+                    $"Run: {upgradeCommand}";
+            }
+
             return new PackageHealthInfo
             {
                 Name = name,
@@ -415,9 +455,11 @@ namespace SHA_Project.Services
                 IsPreRelease = isPreRelease,
                 IsDeprecated = isDeprecated,
                 IsVulnerable = isVulnerable,
+                IsNewVersionAvailable = isNewVersionAvailable,
                 HealthLevel = healthLevel,
                 Status = healthLevel,
-                Recommendation = recommendation
+                Recommendation = recommendation,
+                UpgradeCommand = upgradeCommand
             };
         }
     }

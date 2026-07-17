@@ -1,9 +1,9 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
   <Metadata>
     <Identity Id="SHA_Project.21d67eed-ff89-46eb-a1c0-0214b8ebada4" Version="1.0" Language="en-US" Publisher="SHA_Project" />
-    <DisplayName>SHA_Project</DisplayName>
-    <Description>Empty VSIX Project.</Description>
+    <DisplayName>Solution Health Analyzer</DisplayName>
+    <Description xml:space="preserve">Solution Health Analyzer - Comprehensive solution health monitoring with build issue tracking, NuGet package analysis, TODO scanning, AI-powered insights via Gemini, and MCP server integration for GitHub Copilot Chat.</Description>
   </Metadata>
   <Installation>
     <InstallationTarget Id="Microsoft.VisualStudio.Community" Version="[17.14, )">
